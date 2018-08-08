@@ -1,26 +1,37 @@
-#include <ESP8266WiFi.h>
-#include <MQTT.h>
 #include <Creds.h>
+#include <ESP8266WiFi.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <MQTT.h>
+#include <SimpleDHT.h>
+
 
 void myDataCb(String& topic, String& data);
 void myPublishedCb();
 void myDisconnectedCb();
 void myConnectedCb();
 
-#define CLIENT_ID "client1"
+const char*  clientID = "North_Shop";
+
+int err_cnt = 0;
+int cnt = 0;
+// for DHT11, 
+//      VCC: 5V or 3V
+//      GND: GND
+//      DATA: 2
+int pinDHT11 = D7;
+SimpleDHT11 dht11;
 
 // create MQTT object
-MQTT myMqtt(CLIENT_ID, "silver", 1883);
-
-// following in Creds.h
-// const char* ssid     = "ssid";
-// const char* password = "ssid_password";
-
+MQTT myMqtt(clientID, "silver", 1883);
 
 //
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  Serial.println("=========");
+  Serial.println("  node0");
+  Serial.println("=========");
 
   Serial.println();
   Serial.println();
@@ -49,26 +60,46 @@ void setup() {
   
   Serial.println("connect mqtt...");
   myMqtt.connect();
+  cnt = 0;
+  err_cnt = 0;
 
   delay(10);
 }
 
-//
+boolean pubValue(String what, String sensor, int value)
+{
+	String topic("/");
+    topic += clientID + String("/") + sensor + String("/") + what;
+	String valueStr(value);
+
+	// publish value to topic 	
+	return myMqtt.publish(topic, valueStr);
+}
+
 void loop() {
 
-  int value = analogRead(A0);
+	byte temperature = 0;
+	byte humidity = 0;
+  int err = SimpleDHTErrSuccess;
+  if (err = dht11.read(pinDHT11, &temperature, &humidity, NULL) != SimpleDHTErrSuccess) 
+  {
+	  Serial.print("Read DHT11 failed, err="); Serial.println(err); err_cnt++;
+  }
+  else
+  {
+	  temperature = ((temperature * 9) / 5) + 32;
+	  Serial.print("DHT11, ");
+	  Serial.print((int)temperature); Serial.print(" *F, ");
+	  Serial.print((int)humidity); Serial.print(" RH ");
 
-  String topic("/");
-  topic += CLIENT_ID;
-  topic += "/value";
-  
-  String valueStr(value);
-
-  // publish value to topic
-  Serial.println(valueStr);
-  boolean result = myMqtt.publish(topic, valueStr);
+	 // boolean result = myMqtt.publish("temperature", value);
+	  pubValue("temperature", "DTH11-0", temperature);
+	  pubValue("humidity", "DTH11-0", humidity);
+  }
+  Serial.print("  Reads: "); Serial.print(++cnt);
+  Serial.print(", errors: "); Serial.println(err_cnt);
     
-  delay(1000);
+  delay(15000);
 }
 
 
