@@ -1,3 +1,9 @@
+/*
+ *
+ *     M  A  S  T  E  R
+ *
+ */
+
 #include <ESP8266WiFi.h>
 #include <MQTT.h>
 #include <OneWire.h>
@@ -10,13 +16,16 @@ void myDataCb(String& topic, String& data);
 void myPublishedCb();
 void myDisconnectedCb();
 void myConnectedCb();
-void setup_oneWire();
-void printOWAddress(DeviceAddress deviceAddress);
+
 float C2F(float);
+boolean toggle = false;
 
 #ifdef OWB
 /// for oneWire 
+// function prototypes
 // function to print a device address
+void printOWAddress(DeviceAddress deviceAddress);
+void setupOneWire();
 void printOWAddress(DeviceAddress deviceAddress);
 
 // Setup a oneWire instance to communicate with any OneWire devices 
@@ -28,16 +37,18 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 long lastTemp = 0;
 long lastMsg = 0;
-boolean toggle = false;
-float temp0 = 0;
-float temp1 = 0;
+
 const int inPin = 5;  // should be ONE_WIRE_BUS
 int deviceCount;
+const int MAX_ONE_WIRE_DEVICES = 8;  // hard coded here and in DallasTemperature.h  "typedef uint8_t DeviceAddress[8];"
 // arrays to hold device addresses
-DeviceAddress insideThermometer, outsideThermometer;
+// this is special.  The names like insideThermometer are defined here as array indexes.
+// each node needs to have these changed to suite
+////DeviceAddress insideThermometer, outsideThermometer, anotherThermometer;
+DeviceAddress device[8]; // 8 devices
 #endif
 
-const char * clientID = "East_Shop";
+const char * clientID = "master";
 
 // create MQTT object
 MQTT myMqtt(clientID, mqtt_server, 1883);
@@ -49,10 +60,8 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  Serial.println();
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
+  Serial.print("\n\nConnecting to ");
+  Serial.print(ssid);
   
   WiFi.begin(ssid, password);
   
@@ -61,9 +70,7 @@ void setup() {
     Serial.print(".");
   }
 
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
+  Serial.print("\nWiFi connected IP address: ");
   Serial.println(WiFi.localIP());
 
   Serial.println("Connecting to MQTT server");  
@@ -77,7 +84,7 @@ void setup() {
   Serial.println("connect mqtt...");
   myMqtt.connect();
 #ifdef OWB
-  setup_oneWire();
+  setupOneWire();
 #endif
   delay(10);  // not sure we need this anymore but leave it alone
 }
@@ -149,7 +156,7 @@ void printOWAddress(DeviceAddress deviceAddress)
 	Serial.println();
 }
 
-void setup_oneWire()
+void setupOneWire()
 {
 	pinMode(inPin, INPUT);
 	sensors.begin();
@@ -158,18 +165,26 @@ void setup_oneWire()
 	toggle = false;
 
 	deviceCount = sensors.getDeviceCount();
+	if (deviceCount > MAX_ONE_WIRE_DEVICES)
+	{
+		Serial.print("WARNING: Number of oneWire devices exceeds deviceCountMax");
+		deviceCount = MAX_ONE_WIRE_DEVICES;
+	}
+
 	Serial.print("DeviceCount:");
 	Serial.println(deviceCount);
 
-	if (sensors.getAddress(insideThermometer, 0))
-		printOWAddress(insideThermometer);
-	else
-		Serial.println("Unable to find address for Device 0");
-
-	if (sensors.getAddress(outsideThermometer, 1))
-		printOWAddress(outsideThermometer);
-	else
-		Serial.println("Unable to find address for Device 1");
+	for (int i = 0; i < deviceCount; i++)  // device is an array of OW devices
+	{
+		if (sensors.getAddress(device[i], i))
+			printOWAddress(device[i]);
+		else
+		{
+			Serial.print("Unable to find address for Device ");
+			Serial.println(i);
+		}
+			
+	}
 
 	sensors.setResolution(12);
 }
@@ -178,6 +193,7 @@ void oneWireHandler(void)
 {
 	/// oneWire Temperature code 
 	String topic;
+	float temperature;
 
 	long now = millis();
 	if (now - lastTemp > (20 * 1000))  // 20 seconds
@@ -185,13 +201,27 @@ void oneWireHandler(void)
 		lastTemp = now;
 
 		sensors.requestTemperatures(); // Send the command to get temperatures
-		temp0 = sensors.getTempCByIndex(0);
-		temp0 = C2F(temp0);
-		temp1 = sensors.getTempCByIndex(1);
-		temp1 = C2F(temp1);
-		Serial.println(temp0);
-		Serial.println(temp1);
-
+		for (int i = 0; i < deviceCount; i++)
+		{
+			temperature = sensors.getTempFByIndex(i);
+			Serial.print("Device ");  Serial.print(i); Serial.print(": ");
+			Serial.print(temperature);
+			// publish regardless of value. let upstream figure it out
+			topic = String(clientID) + String("/temp") + String(i);
+			Serial.print(" /"); Serial.print(topic); 
+			String valueStr(temperature);
+			for (int t = 0; t < 5; t++)
+			{
+				if (myMqtt.publish(topic, valueStr))
+				{
+					Serial.print(" Published");
+					break;
+				}
+				Serial.println("F ");
+			}
+			Serial.println("");
+		}
+		/*
 		// If temps are reasonable publish them 
 
 		// if ((temp0 > -20) && (temp0 < 60)) 
@@ -227,13 +257,10 @@ void oneWireHandler(void)
 			}
 			else Serial.println("ERROR: temp1 out of range");
 		}
+		*/
 
 	}
 }
 
 #endif
 
-float C2F(float c)
-{
-	return(((9 * c) / 5) + 32);
-}
