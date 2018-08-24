@@ -29,9 +29,9 @@ MQTT myMqtt(clientID, "silver", 1883);
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("=========");
-  Serial.println("  node0");
-  Serial.println("=========");
+  Serial.println("===========");
+  Serial.println("  Master");
+  Serial.println("===========");
 
   Serial.println();
   Serial.println();
